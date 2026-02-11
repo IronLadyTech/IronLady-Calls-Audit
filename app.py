@@ -486,6 +486,60 @@ All S3 Storage: Auto-deletes after 7 days (Recordings + Analysis JSON)
 """
     return report
 
+# Admin Authentication Functions
+def get_admin_credentials():
+    """Get admin credentials from secrets or environment variables"""
+    return {
+        'username': st.secrets.get("ADMIN_USERNAME", os.getenv("ADMIN_USERNAME", "admin")),
+        'password': st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "ironlady2024"))
+    }
+
+def admin_login_form():
+    """Display admin login form"""
+    st.markdown("### 🔐 Admin Login Required")
+    st.info("Please enter your admin credentials to access the dashboard")
+    
+    with st.form("admin_login_form"):
+        username = st.text_input("Username", placeholder="Enter username")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        submit = st.form_submit_button("🔓 Login", use_container_width=True, type="primary")
+        
+        if submit:
+            credentials = get_admin_credentials()
+            
+            if username == credentials['username'] and password == credentials['password']:
+                st.session_state['admin_authenticated'] = True
+                st.session_state['admin_username'] = username
+                st.session_state['admin_login_time'] = datetime.now()
+                st.success("✅ Login successful!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid username or password")
+                st.caption("💡 Contact the system administrator if you forgot your credentials")
+
+def admin_logout():
+    """Logout admin user"""
+    st.session_state['admin_authenticated'] = False
+    st.session_state.pop('admin_username', None)
+    st.session_state.pop('admin_login_time', None)
+    st.success("✅ Logged out successfully")
+    st.rerun()
+
+def check_admin_session():
+    """Check if admin session is still valid (optional: add timeout)"""
+    if not st.session_state.get('admin_authenticated', False):
+        return False
+    
+    # Optional: Add session timeout (e.g., 8 hours)
+    # login_time = st.session_state.get('admin_login_time')
+    # if login_time:
+    #     elapsed = (datetime.now() - login_time).total_seconds() / 3600
+    #     if elapsed > 8:  # 8 hour timeout
+    #         admin_logout()
+    #         return False
+    
+    return True
+
 # Create data directory (database only, not uploads)
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -693,6 +747,51 @@ def save_admin_feedback(record_id, feedback_text, focus_areas, rating):
     
     save_db(db)
     return True
+
+# Admin Authentication Functions
+def check_admin_password(username, password):
+    """Check if admin credentials are correct"""
+    # Get admin credentials from Streamlit secrets or environment variables
+    admin_users = st.secrets.get("ADMIN_USERS", {
+        "admin": st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "ironlady2025")),
+        "tech": st.secrets.get("TECH_PASSWORD", os.getenv("TECH_PASSWORD", "tech@ironlady"))
+    })
+    
+    return username in admin_users and admin_users[username] == password
+
+def admin_login_form():
+    """Display admin login form"""
+    st.markdown("## 🔐 Admin Login Required")
+    st.markdown("Please enter your admin credentials to access the dashboard.")
+    
+    with st.form("admin_login_form"):
+        username = st.text_input("👤 Username", placeholder="Enter your username")
+        password = st.text_input("🔑 Password", type="password", placeholder="Enter your password")
+        submit = st.form_submit_button("🔓 Login", use_container_width=True, type="primary")
+        
+        if submit:
+            if username and password:
+                if check_admin_password(username, password):
+                    st.session_state.admin_authenticated = True
+                    st.session_state.admin_username = username
+                    st.success(f"✅ Welcome {username}!")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid username or password")
+            else:
+                st.warning("⚠️ Please enter both username and password")
+    
+    st.markdown("---")
+    st.caption("💡 **Default Credentials:**")
+    st.caption("Username: `admin` | Password: `ironlady2025`")
+    st.caption("Username: `tech` | Password: `tech@ironlady`")
+    st.caption("🔒 Change these in Streamlit secrets or environment variables")
+
+def admin_logout():
+    """Logout admin user"""
+    st.session_state.admin_authenticated = False
+    st.session_state.admin_username = None
+    st.rerun()
 
 def analyze_call_with_gpt(call_type, additional_context, manual_scores=None, rm_name=None):
     """Enhanced GPT analysis with robust Iron Lady parameters, case study detection, and admin feedback context"""
@@ -2037,924 +2136,935 @@ elif page == "Dashboard":
 elif page == "Admin View":
     st.title("👨‍💼 Admin Dashboard")
     
-    # Create tabs for Database and S3
-    tab_db, tab_s3_analysis, tab_s3_audio = st.tabs(["📊 Database Records", "📦 S3 Analysis JSONs", "🎤 S3 Audio Files"])
-    
-    # TAB 1: Database Records (Original Admin View)
-    with tab_db:
-        db = load_db()
+    # Check if admin is authenticated
+    if not st.session_state.get('admin_authenticated', False):
+        # Show login form
+        admin_login_form()
+    else:
+        # Show logout button in sidebar
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(f"**Logged in as:** {st.session_state.get('admin_username', 'Admin')}")
+        if st.sidebar.button("🚪 Logout", use_container_width=True):
+            admin_logout()
         
-        if not db:
-            st.info("No data available yet.")
-        else:
-            st.subheader("📈 Overall Statistics")
+        # Show admin content - Create tabs for Database and S3
+        tab_db, tab_s3_analysis, tab_s3_audio = st.tabs(["📊 Database Records", "📦 S3 Analysis JSONs", "🎤 S3 Audio Files"])
+        
+        # TAB 1: Database Records (Original Admin View)
+        with tab_db:
+            db = load_db()
+        
+            if not db:
+                st.info("No data available yet.")
+            else:
+                st.subheader("📈 Overall Statistics")
             
-            col1, col2, col3, col4, col5 = st.columns(5)
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Total Calls", len(db))
+                with col2:
+                    success_count = len([r for r in db if "Success" in r['pitch_outcome']])
+                    st.metric("Successful", success_count)
+                with col3:
+                    avg_score = sum([r['analysis'].get('overall_score', 0) for r in db]) / len(db)
+                    st.metric("Avg Score", f"{avg_score:.1f}/100")
+                with col4:
+                    avg_compliance = sum([r['analysis'].get('methodology_compliance', 0) for r in db]) / len(db)
+                    st.metric("Avg IL Compliance", f"{avg_compliance:.1f}%")
+                with col5:
+                    unique_rms = len(set([r['rm_name'] for r in db]))
+                    st.metric("Active RMs", unique_rms)
+        
+            # Call Type Performance
+            st.markdown("---")
+            st.subheader("📊 Performance by Call Type")
+            call_type_stats = {}
+            for r in db:
+                ct = r.get('call_type', 'Unknown')
+                if ct not in call_type_stats:
+                    call_type_stats[ct] = {'count': 0, 'scores': []}
+                call_type_stats[ct]['count'] += 1
+                call_type_stats[ct]['scores'].append(r['analysis'].get('overall_score', 0))
+        
+            ct_df = pd.DataFrame([
+                {
+                    'Call Type': ct,
+                    'Count': data['count'],
+                    'Avg Score': f"{sum(data['scores'])/len(data['scores']):.1f}",
+                    'Success Rate': f"{(len([s for s in data['scores'] if s >= 70])/len(data['scores'])*100):.0f}%"
+                }
+                for ct, data in call_type_stats.items()
+            ])
+            st.dataframe(ct_df, use_container_width=True, hide_index=True)
+        
+            # Bulk operations
+            st.markdown("---")
+            st.subheader("⚠️ Bulk Operations")
+            col1, col2 = st.columns(2)
+        
             with col1:
-                st.metric("Total Calls", len(db))
+                if st.button("🗑️ Delete All Records (Careful!)"):
+                    if st.checkbox("✅ I confirm deletion of ALL records"):
+                        save_db([])
+                        st.success("All records deleted!")
+                        st.rerun()
+        
             with col2:
-                success_count = len([r for r in db if "Success" in r['pitch_outcome']])
-                st.metric("Successful", success_count)
+                all_data = json.dumps(db, indent=2)
+                st.download_button(
+                    label="📥 Backup All Data (JSON)",
+                    data=all_data,
+                    file_name=f"iron_lady_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+            # Filters
+            st.markdown("---")
+            st.subheader("🔍 Advanced Filters")
+            col1, col2, col3, col4 = st.columns(4)
+        
+            with col1:
+                rm_list = ["All"] + sorted(list(set([r['rm_name'] for r in db])))
+                selected_rm = st.selectbox("Filter by RM", rm_list)
+            with col2:
+                selected_call_type = st.selectbox("Filter by Call Type", ["All"] + list(CALL_TYPE_FOCUS.keys()))
             with col3:
-                avg_score = sum([r['analysis'].get('overall_score', 0) for r in db]) / len(db)
-                st.metric("Avg Score", f"{avg_score:.1f}/100")
+                selected_outcome = st.selectbox("Filter by Outcome", ["All", "Success - Committed", "Partial - Needs Follow-up", "Not Interested", "Rescheduled"])
             with col4:
-                avg_compliance = sum([r['analysis'].get('methodology_compliance', 0) for r in db]) / len(db)
-                st.metric("Avg IL Compliance", f"{avg_compliance:.1f}%")
-            with col5:
-                unique_rms = len(set([r['rm_name'] for r in db]))
-                st.metric("Active RMs", unique_rms)
+                score_filter = st.selectbox("Score Range", ["All", "Excellent (85-100)", "Good (70-84)", "Average (50-69)", "Needs Work (<50)"])
         
-        # Call Type Performance
-        st.markdown("---")
-        st.subheader("📊 Performance by Call Type")
-        call_type_stats = {}
-        for r in db:
-            ct = r.get('call_type', 'Unknown')
-            if ct not in call_type_stats:
-                call_type_stats[ct] = {'count': 0, 'scores': []}
-            call_type_stats[ct]['count'] += 1
-            call_type_stats[ct]['scores'].append(r['analysis'].get('overall_score', 0))
+            # Apply filters
+            filtered_db = db
+            if selected_rm != "All":
+                filtered_db = [r for r in filtered_db if r['rm_name'] == selected_rm]
+            if selected_call_type != "All":
+                filtered_db = [r for r in filtered_db if r.get('call_type') == selected_call_type]
+            if selected_outcome != "All":
+                filtered_db = [r for r in filtered_db if r['pitch_outcome'] == selected_outcome]
+            if score_filter != "All":
+                if "Excellent" in score_filter:
+                    filtered_db = [r for r in filtered_db if r['analysis'].get('overall_score', 0) >= 85]
+                elif "Good" in score_filter:
+                    filtered_db = [r for r in filtered_db if 70 <= r['analysis'].get('overall_score', 0) < 85]
+                elif "Average" in score_filter:
+                    filtered_db = [r for r in filtered_db if 50 <= r['analysis'].get('overall_score', 0) < 70]
+                elif "Needs Work" in score_filter:
+                    filtered_db = [r for r in filtered_db if r['analysis'].get('overall_score', 0) < 50]
         
-        ct_df = pd.DataFrame([
-            {
-                'Call Type': ct,
-                'Count': data['count'],
-                'Avg Score': f"{sum(data['scores'])/len(data['scores']):.1f}",
-                'Success Rate': f"{(len([s for s in data['scores'] if s >= 70])/len(data['scores'])*100):.0f}%"
-            }
-            for ct, data in call_type_stats.items()
-        ])
-        st.dataframe(ct_df, use_container_width=True, hide_index=True)
+            st.markdown("---")
+            st.subheader(f"📊 Filtered Results ({len(filtered_db)} calls)")
         
-        # Bulk operations
-        st.markdown("---")
-        st.subheader("⚠️ Bulk Operations")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🗑️ Delete All Records (Careful!)"):
-                if st.checkbox("✅ I confirm deletion of ALL records"):
-                    save_db([])
-                    st.success("All records deleted!")
-                    st.rerun()
-        
-        with col2:
-            all_data = json.dumps(db, indent=2)
-            st.download_button(
-                label="📥 Backup All Data (JSON)",
-                data=all_data,
-                file_name=f"iron_lady_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
-        
-        # Filters
-        st.markdown("---")
-        st.subheader("🔍 Advanced Filters")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            rm_list = ["All"] + sorted(list(set([r['rm_name'] for r in db])))
-            selected_rm = st.selectbox("Filter by RM", rm_list)
-        with col2:
-            selected_call_type = st.selectbox("Filter by Call Type", ["All"] + list(CALL_TYPE_FOCUS.keys()))
-        with col3:
-            selected_outcome = st.selectbox("Filter by Outcome", ["All", "Success - Committed", "Partial - Needs Follow-up", "Not Interested", "Rescheduled"])
-        with col4:
-            score_filter = st.selectbox("Score Range", ["All", "Excellent (85-100)", "Good (70-84)", "Average (50-69)", "Needs Work (<50)"])
-        
-        # Apply filters
-        filtered_db = db
-        if selected_rm != "All":
-            filtered_db = [r for r in filtered_db if r['rm_name'] == selected_rm]
-        if selected_call_type != "All":
-            filtered_db = [r for r in filtered_db if r.get('call_type') == selected_call_type]
-        if selected_outcome != "All":
-            filtered_db = [r for r in filtered_db if r['pitch_outcome'] == selected_outcome]
-        if score_filter != "All":
-            if "Excellent" in score_filter:
-                filtered_db = [r for r in filtered_db if r['analysis'].get('overall_score', 0) >= 85]
-            elif "Good" in score_filter:
-                filtered_db = [r for r in filtered_db if 70 <= r['analysis'].get('overall_score', 0) < 85]
-            elif "Average" in score_filter:
-                filtered_db = [r for r in filtered_db if 50 <= r['analysis'].get('overall_score', 0) < 70]
-            elif "Needs Work" in score_filter:
-                filtered_db = [r for r in filtered_db if r['analysis'].get('overall_score', 0) < 50]
-        
-        st.markdown("---")
-        st.subheader(f"📊 Filtered Results ({len(filtered_db)} calls)")
-        
-        # DataFrame
-        df_data = []
-        for record in filtered_db:
-            score = record['analysis'].get('overall_score', 0)
-            status = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-            df_data.append({
-                "Status": status,
-                "ID": record['id'],
-                "Date": record['call_date'],
-                "RM": record['rm_name'],
-                "Participant": record['client_name'],
-                "Call Type": record.get('call_type', 'N/A'),
-                "Score": f"{score:.1f}",
-                "IL %": f"{record['analysis'].get('methodology_compliance', 0):.1f}%",
-                "Outcome": record['pitch_outcome']
-            })
-        
-        if df_data:
-            df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            
-            # Generate comprehensive CSV export
-            comprehensive_data = []
+            # DataFrame
+            df_data = []
             for record in filtered_db:
-                analysis = record.get('analysis', {})
-                core_dims = analysis.get('core_dimensions', {})
-                il_params = analysis.get('iron_lady_parameters', {})
-                
-                # Base record info
-                row = {
+                score = record['analysis'].get('overall_score', 0)
+                status = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+                df_data.append({
+                    "Status": status,
                     "ID": record['id'],
                     "Date": record['call_date'],
-                    "RM Name": record['rm_name'],
+                    "RM": record['rm_name'],
                     "Participant": record['client_name'],
                     "Call Type": record.get('call_type', 'N/A'),
-                    "Duration (min)": record.get('call_duration', 'N/A'),
-                    "Outcome": record['pitch_outcome'],
-                    "Overall Score": f"{analysis.get('overall_score', 0):.1f}",
-                    "IL Compliance %": f"{analysis.get('methodology_compliance', 0):.1f}",
-                    "Effectiveness": analysis.get('call_effectiveness', 'N/A'),
-                    "Prediction": analysis.get('outcome_prediction', {}).get('likely_result', 'N/A').replace('_', ' ').title(),
-                    "Confidence %": analysis.get('outcome_prediction', {}).get('confidence', 0)
-                }
-                
-                # Add core dimensions with percentages
-                weights = {
-                    "rapport_building": 20,
-                    "needs_discovery": 25,
-                    "solution_presentation": 25,
-                    "objection_handling": 15,
-                    "closing_technique": 15
-                }
-                for dim, score in core_dims.items():
-                    max_score = weights.get(dim, 10)
-                    pct = (score / max_score) * 100
-                    row[f"CD: {dim.replace('_', ' ').title()}"] = f"{score}/{max_score}"
-                    row[f"CD: {dim.replace('_', ' ').title()} %"] = f"{pct:.0f}%"
-                
-                # Add IL parameters with percentages and status
-                sorted_il_params = sorted(il_params.items(), key=lambda x: x[1], reverse=True)
-                for param, score in sorted_il_params:
-                    pct = (score / 10) * 100
-                    status = "Excellent" if pct >= 80 else "Good" if pct >= 60 else "Needs Focus"
-                    row[f"IL: {param.replace('_', ' ').title()}"] = f"{score}/10"
-                    row[f"IL: {param.replace('_', ' ').title()} %"] = f"{pct:.0f}%"
-                    row[f"IL: {param.replace('_', ' ').title()} Status"] = status
-                
-                # Add areas needing improvement
-                needs_improvement = []
-                for param, score in sorted_il_params:
-                    if (score / 10 * 100) < 60:
-                        needs_improvement.append(param.replace('_', ' ').title())
-                
-                row["Areas Needing Improvement"] = "; ".join(needs_improvement) if needs_improvement else "None - All parameters good"
-                
-                # Add top 3 strengths
-                strengths = analysis.get('key_insights', {}).get('strengths', [])
-                row["Top Strengths"] = "; ".join(strengths[:3]) if strengths else "N/A"
-                
-                # Add top 3 gaps
-                gaps = analysis.get('key_insights', {}).get('critical_gaps', [])
-                row["Critical Gaps"] = "; ".join(gaps[:3]) if gaps else "N/A"
-                
-                # Add coaching recommendations
-                coaching = analysis.get('iron_lady_specific_coaching', [])
-                row["Coaching Focus"] = "; ".join(coaching[:3]) if coaching else "N/A"
-                
-                comprehensive_data.append(row)
+                    "Score": f"{score:.1f}",
+                    "IL %": f"{record['analysis'].get('methodology_compliance', 0):.1f}%",
+                    "Outcome": record['pitch_outcome']
+                })
+        
+            if df_data:
+                df = pd.DataFrame(df_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
             
-            comprehensive_df = pd.DataFrame(comprehensive_data)
-            csv = comprehensive_df.to_csv(index=False)
-            
-            st.download_button(
-                label="📥 Download Comprehensive Report (CSV)",
-                data=csv,
-                file_name=f"iron_lady_comprehensive_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                help="Includes all scores, parameters, percentages, and improvement areas"
-            )
-            
-            # Parameter Performance Analysis
-            st.markdown("---")
-            st.subheader("📊 Iron Lady Parameter Performance")
-            
-            param_totals = {}
-            param_counts = {}
-            
-            for record in filtered_db:
-                for param, score in record['analysis'].get('iron_lady_parameters', {}).items():
-                    if param not in param_totals:
-                        param_totals[param] = 0
-                        param_counts[param] = 0
-                    param_totals[param] += score
-                    param_counts[param] += 1
-            
-            param_avg = {param: (param_totals[param] / param_counts[param]) for param in param_totals}
-            
-            if param_avg:
-                param_df = pd.DataFrame([
-                    {
-                        "Parameter": param.replace('_', ' ').title(),
-                        "Avg Score": f"{score:.1f}/10",
-                        "%": f"{(score/10*100):.0f}%",
-                        "Status": "🟢 Excellent" if score >= 8 else "🟡 Good" if score >= 6 else "🔴 Needs Focus"
+                # Generate comprehensive CSV export
+                comprehensive_data = []
+                for record in filtered_db:
+                    analysis = record.get('analysis', {})
+                    core_dims = analysis.get('core_dimensions', {})
+                    il_params = analysis.get('iron_lady_parameters', {})
+                
+                    # Base record info
+                    row = {
+                        "ID": record['id'],
+                        "Date": record['call_date'],
+                        "RM Name": record['rm_name'],
+                        "Participant": record['client_name'],
+                        "Call Type": record.get('call_type', 'N/A'),
+                        "Duration (min)": record.get('call_duration', 'N/A'),
+                        "Outcome": record['pitch_outcome'],
+                        "Overall Score": f"{analysis.get('overall_score', 0):.1f}",
+                        "IL Compliance %": f"{analysis.get('methodology_compliance', 0):.1f}",
+                        "Effectiveness": analysis.get('call_effectiveness', 'N/A'),
+                        "Prediction": analysis.get('outcome_prediction', {}).get('likely_result', 'N/A').replace('_', ' ').title(),
+                        "Confidence %": analysis.get('outcome_prediction', {}).get('confidence', 0)
                     }
-                    for param, score in sorted(param_avg.items(), key=lambda x: x[1], reverse=True)
-                ])
                 
-                st.dataframe(param_df, use_container_width=True, hide_index=True)
-                st.info("💡 **Team Coaching Focus:** Prioritize 🔴 parameters for immediate training and practice")
-            
-            # Detailed records
-            st.markdown("---")
-            st.subheader("🔍 Detailed Call Records")
-            
-            for admin_idx, record in enumerate(reversed(filtered_db[:15])):  # Show last 15
-                analysis = record.get('analysis', {})
-                score = analysis.get('overall_score', 0)
-                score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+                    # Add core dimensions with percentages
+                    weights = {
+                        "rapport_building": 20,
+                        "needs_discovery": 25,
+                        "solution_presentation": 25,
+                        "objection_handling": 15,
+                        "closing_technique": 15
+                    }
+                    for dim, score in core_dims.items():
+                        max_score = weights.get(dim, 10)
+                        pct = (score / max_score) * 100
+                        row[f"CD: {dim.replace('_', ' ').title()}"] = f"{score}/{max_score}"
+                        row[f"CD: {dim.replace('_', ' ').title()} %"] = f"{pct:.0f}%"
                 
-                with st.expander(
-                    f"{score_emoji} [{record['id']}] {record['rm_name']} - {record['call_type']} - "
-                    f"{record['client_name']} ({record['call_date']}) - Score: {score:.1f}/100"
-                ):
-                    col1, col2 = st.columns(2)
+                    # Add IL parameters with percentages and status
+                    sorted_il_params = sorted(il_params.items(), key=lambda x: x[1], reverse=True)
+                    for param, score in sorted_il_params:
+                        pct = (score / 10) * 100
+                        status = "Excellent" if pct >= 80 else "Good" if pct >= 60 else "Needs Focus"
+                        row[f"IL: {param.replace('_', ' ').title()}"] = f"{score}/10"
+                        row[f"IL: {param.replace('_', ' ').title()} %"] = f"{pct:.0f}%"
+                        row[f"IL: {param.replace('_', ' ').title()} Status"] = status
+                
+                    # Add areas needing improvement
+                    needs_improvement = []
+                    for param, score in sorted_il_params:
+                        if (score / 10 * 100) < 60:
+                            needs_improvement.append(param.replace('_', ' ').title())
+                
+                    row["Areas Needing Improvement"] = "; ".join(needs_improvement) if needs_improvement else "None - All parameters good"
+                
+                    # Add top 3 strengths
+                    strengths = analysis.get('key_insights', {}).get('strengths', [])
+                    row["Top Strengths"] = "; ".join(strengths[:3]) if strengths else "N/A"
+                
+                    # Add top 3 gaps
+                    gaps = analysis.get('key_insights', {}).get('critical_gaps', [])
+                    row["Critical Gaps"] = "; ".join(gaps[:3]) if gaps else "N/A"
+                
+                    # Add coaching recommendations
+                    coaching = analysis.get('iron_lady_specific_coaching', [])
+                    row["Coaching Focus"] = "; ".join(coaching[:3]) if coaching else "N/A"
+                
+                    comprehensive_data.append(row)
+            
+                comprehensive_df = pd.DataFrame(comprehensive_data)
+                csv = comprehensive_df.to_csv(index=False)
+            
+                st.download_button(
+                    label="📥 Download Comprehensive Report (CSV)",
+                    data=csv,
+                    file_name=f"iron_lady_comprehensive_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    help="Includes all scores, parameters, percentages, and improvement areas"
+                )
+            
+                # Parameter Performance Analysis
+                st.markdown("---")
+                st.subheader("📊 Iron Lady Parameter Performance")
+            
+                param_totals = {}
+                param_counts = {}
+            
+                for record in filtered_db:
+                    for param, score in record['analysis'].get('iron_lady_parameters', {}).items():
+                        if param not in param_totals:
+                            param_totals[param] = 0
+                            param_counts[param] = 0
+                        param_totals[param] += score
+                        param_counts[param] += 1
+            
+                param_avg = {param: (param_totals[param] / param_counts[param]) for param in param_totals}
+            
+                if param_avg:
+                    param_df = pd.DataFrame([
+                        {
+                            "Parameter": param.replace('_', ' ').title(),
+                            "Avg Score": f"{score:.1f}/10",
+                            "%": f"{(score/10*100):.0f}%",
+                            "Status": "🟢 Excellent" if score >= 8 else "🟡 Good" if score >= 6 else "🔴 Needs Focus"
+                        }
+                        for param, score in sorted(param_avg.items(), key=lambda x: x[1], reverse=True)
+                    ])
+                
+                    st.dataframe(param_df, use_container_width=True, hide_index=True)
+                    st.info("💡 **Team Coaching Focus:** Prioritize 🔴 parameters for immediate training and practice")
+            
+                # Detailed records
+                st.markdown("---")
+                st.subheader("🔍 Detailed Call Records")
+            
+                for admin_idx, record in enumerate(reversed(filtered_db[:15])):  # Show last 15
+                    analysis = record.get('analysis', {})
+                    score = analysis.get('overall_score', 0)
+                    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+                
+                    with st.expander(
+                        f"{score_emoji} [{record['id']}] {record['rm_name']} - {record['call_type']} - "
+                        f"{record['client_name']} ({record['call_date']}) - Score: {score:.1f}/100"
+                    ):
+                        col1, col2 = st.columns(2)
                     
-                    with col1:
-                        st.write("**Call Information:**")
-                        st.write(f"• Record ID: {record['id']}")
-                        st.write(f"• RM: {record['rm_name']}")
-                        st.write(f"• Participant: {record['client_name']}")
-                        st.write(f"• Call Type: {record.get('call_type', 'N/A')}")
-                        st.write(f"• Date: {record['call_date']}")
-                        st.write(f"• Duration: {record.get('call_duration', 'N/A')} minutes")
-                        st.write(f"• Outcome: {record['pitch_outcome']}")
-                        st.write(f"• Storage: {record.get('storage_type', 'local')} (7-day auto-delete)")
-                        st.write(f"• Analysis: S3 JSON (7-day auto-delete)")
-                        st.write(f"• Analysis Mode: {record.get('analysis_mode', 'N/A')}")
+                        with col1:
+                            st.write("**Call Information:**")
+                            st.write(f"• Record ID: {record['id']}")
+                            st.write(f"• RM: {record['rm_name']}")
+                            st.write(f"• Participant: {record['client_name']}")
+                            st.write(f"• Call Type: {record.get('call_type', 'N/A')}")
+                            st.write(f"• Date: {record['call_date']}")
+                            st.write(f"• Duration: {record.get('call_duration', 'N/A')} minutes")
+                            st.write(f"• Outcome: {record['pitch_outcome']}")
+                            st.write(f"• Storage: {record.get('storage_type', 'local')} (7-day auto-delete)")
+                            st.write(f"• Analysis: S3 JSON (7-day auto-delete)")
+                            st.write(f"• Analysis Mode: {record.get('analysis_mode', 'N/A')}")
                     
-                    with col2:
-                        st.write("**Performance Scores:**")
-                        st.metric("Overall Score", f"{score:.1f}/100")
-                        st.metric("IL Compliance", f"{analysis.get('methodology_compliance', 0):.1f}%")
-                        st.metric("Effectiveness", analysis.get('call_effectiveness', 'N/A'))
-                        pred = analysis.get('outcome_prediction', {})
-                        st.write(f"**Prediction:** {pred.get('likely_result', 'N/A').replace('_', ' ').title()}")
-                        st.write(f"**Confidence:** {pred.get('confidence', 0)}%")
+                        with col2:
+                            st.write("**Performance Scores:**")
+                            st.metric("Overall Score", f"{score:.1f}/100")
+                            st.metric("IL Compliance", f"{analysis.get('methodology_compliance', 0):.1f}%")
+                            st.metric("Effectiveness", analysis.get('call_effectiveness', 'N/A'))
+                            pred = analysis.get('outcome_prediction', {})
+                            st.write(f"**Prediction:** {pred.get('likely_result', 'N/A').replace('_', ' ').title()}")
+                            st.write(f"**Confidence:** {pred.get('confidence', 0)}%")
                     
-                    st.write(f"**Summary:** {analysis.get('call_summary', 'N/A')}")
+                        st.write(f"**Summary:** {analysis.get('call_summary', 'N/A')}")
                     
-                    # Show parameter breakdown
-                    if 'core_dimensions' in analysis:
-                        st.markdown("**Core Dimensions:**")
-                        for dim, score in analysis['core_dimensions'].items():
-                            max_score = IRON_LADY_PARAMETERS["Core Quality Dimensions"][dim]["weight"]
-                            pct = (score / max_score) * 100
-                            emoji = "🟢" if pct >= 80 else "🟡" if pct >= 60 else "🔴"
-                            st.write(f"{emoji} {dim.replace('_', ' ').title()}: {score}/{max_score} ({pct:.0f}%)")
+                        # Show parameter breakdown
+                        if 'core_dimensions' in analysis:
+                            st.markdown("**Core Dimensions:**")
+                            for dim, score in analysis['core_dimensions'].items():
+                                max_score = IRON_LADY_PARAMETERS["Core Quality Dimensions"][dim]["weight"]
+                                pct = (score / max_score) * 100
+                                emoji = "🟢" if pct >= 80 else "🟡" if pct >= 60 else "🔴"
+                                st.write(f"{emoji} {dim.replace('_', ' ').title()}: {score}/{max_score} ({pct:.0f}%)")
                     
-                    if 'iron_lady_parameters' in analysis:
-                        st.markdown("**Iron Lady Parameters:**")
-                        for param, score in analysis['iron_lady_parameters'].items():
-                            pct = (score / 10) * 100
-                            emoji = "🟢" if pct >= 80 else "🟡" if pct >= 60 else "🔴"
-                            st.write(f"{emoji} {param.replace('_', ' ').title()}: {score}/10 ({pct:.0f}%)")
+                        if 'iron_lady_parameters' in analysis:
+                            st.markdown("**Iron Lady Parameters:**")
+                            for param, score in analysis['iron_lady_parameters'].items():
+                                pct = (score / 10) * 100
+                                emoji = "🟢" if pct >= 80 else "🟡" if pct >= 60 else "🔴"
+                                st.write(f"{emoji} {param.replace('_', ' ').title()}: {score}/10 ({pct:.0f}%)")
                     
-                    # Show top 3 strengths and gaps
-                    insights = analysis.get('key_insights', {})
-                    col_a, col_b = st.columns(2)
+                        # Show top 3 strengths and gaps
+                        insights = analysis.get('key_insights', {})
+                        col_a, col_b = st.columns(2)
                     
-                    with col_a:
-                        if insights.get('strengths'):
-                            st.markdown("**Top Strengths:**")
-                            for s in insights['strengths'][:3]:
-                                st.write(f"✓ {s}")
+                        with col_a:
+                            if insights.get('strengths'):
+                                st.markdown("**Top Strengths:**")
+                                for s in insights['strengths'][:3]:
+                                    st.write(f"✓ {s}")
                     
-                    with col_b:
-                        if insights.get('critical_gaps'):
-                            st.markdown("**Critical Gaps:**")
-                            for g in insights['critical_gaps'][:3]:
-                                st.write(f"✗ {g}")
+                        with col_b:
+                            if insights.get('critical_gaps'):
+                                st.markdown("**Critical Gaps:**")
+                                for g in insights['critical_gaps'][:3]:
+                                    st.write(f"✗ {g}")
                     
-                    # Coaching recommendations
-                    if 'iron_lady_specific_coaching' in analysis:
-                        st.markdown("**Iron Lady Coaching:**")
-                        for i, rec in enumerate(analysis['iron_lady_specific_coaching'][:3], 1):
-                            st.write(f"{i}. 💎 {rec}")
+                        # Coaching recommendations
+                        if 'iron_lady_specific_coaching' in analysis:
+                            st.markdown("**Iron Lady Coaching:**")
+                            for i, rec in enumerate(analysis['iron_lady_specific_coaching'][:3], 1):
+                                st.write(f"{i}. 💎 {rec}")
                     
-                    # Action buttons
-                    col_a, col_b, col_c, col_d = st.columns([1, 1, 1, 2])
+                        # Action buttons
+                        col_a, col_b, col_c, col_d = st.columns([1, 1, 1, 2])
                     
-                    with col_a:
-                        if st.button("🗑️ Delete", key=f"del_admin_{record['id']}_{admin_idx}"):
-                            delete_record(record['id'])
-                            st.success("Deleted!")
-                            st.rerun()
+                        with col_a:
+                            if st.button("🗑️ Delete", key=f"del_admin_{record['id']}_{admin_idx}"):
+                                delete_record(record['id'])
+                                st.success("Deleted!")
+                                st.rerun()
                     
-                    with col_b:
-                        summary = generate_summary_report(record)
-                        st.download_button(
-                            label="📄 Report",
-                            data=summary,
-                            file_name=f"Iron_Lady_Report_{record['id']}.txt",
-                            mime="text/plain",
-                            key=f"sum_adm_{record['id']}_{admin_idx}"
-                        )
+                        with col_b:
+                            summary = generate_summary_report(record)
+                            st.download_button(
+                                label="📄 Report",
+                                data=summary,
+                                file_name=f"Iron_Lady_Report_{record['id']}.txt",
+                                mime="text/plain",
+                                key=f"sum_adm_{record['id']}_{admin_idx}"
+                            )
                     
-                    with col_c:
-                        json_data = json.dumps(record, indent=2)
-                        st.download_button(
-                            label="📥 JSON",
-                            data=json_data,
-                            file_name=f"record_{record['id']}.json",
-                            mime="application/json",
-                            key=f"json_adm_{record['id']}_{admin_idx}"
-                        )
+                        with col_c:
+                            json_data = json.dumps(record, indent=2)
+                            st.download_button(
+                                label="📥 JSON",
+                                data=json_data,
+                                file_name=f"record_{record['id']}.json",
+                                mime="application/json",
+                                key=f"json_adm_{record['id']}_{admin_idx}"
+                            )
     
-    # TAB 2: S3 Analysis JSONs
-    with tab_s3_analysis:
-        st.subheader("📦 AWS S3 Analysis Browser")
+        # TAB 2: S3 Analysis JSONs
+        with tab_s3_analysis:
+            st.subheader("📦 AWS S3 Analysis Browser")
         
-        # Check S3 connection
-        s3_stats = get_s3_stats()
-        if not s3_stats:
-            st.error("❌ AWS S3 not connected. Please configure AWS credentials in Streamlit secrets.")
-            st.stop()
+            # Check S3 connection
+            s3_stats = get_s3_stats()
+            if not s3_stats:
+                st.error("❌ AWS S3 not connected. Please configure AWS credentials in Streamlit secrets.")
+                st.stop()
         
-        # S3 Status metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total S3 Files", s3_stats['files'])
-        with col2:
-            st.metric("Storage Used", s3_stats['size'])
-        with col3:
-            try:
-                lifecycle_status = verify_s3_lifecycle_policy()
-                if lifecycle_status and lifecycle_status.get('active'):
-                    days = lifecycle_status.get('days', 7)
-                    st.metric("Auto-Delete", f"{days} days ✅", delta="Active")
-                else:
-                    st.metric("Auto-Delete", "Not Set", delta="Setup in AWS Console", delta_color="inverse")
-            except:
-                st.metric("Auto-Delete", "Unknown", delta="Check AWS Console")
+            # S3 Status metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total S3 Files", s3_stats['files'])
+            with col2:
+                st.metric("Storage Used", s3_stats['size'])
+            with col3:
+                try:
+                    lifecycle_status = verify_s3_lifecycle_policy()
+                    if lifecycle_status and lifecycle_status.get('active'):
+                        days = lifecycle_status.get('days', 7)
+                        st.metric("Auto-Delete", f"{days} days ✅", delta="Active")
+                    else:
+                        st.metric("Auto-Delete", "Not Set", delta="Setup in AWS Console", delta_color="inverse")
+                except:
+                    st.metric("Auto-Delete", "Unknown", delta="Check AWS Console")
         
-        st.markdown("---")
-        st.caption("📁 **S3 Path:** `recordings/analysis/YYYY/MM/DD/*.json`")
-        
-        with st.spinner("Loading analysis files from S3..."):
-            analyses = list_s3_analyses()
-        
-        if not analyses:
-            st.info("No analysis JSONs found in S3. Upload and analyze calls to see them here.")
-        else:
-            st.success(f"Found **{len(analyses)}** analysis files in S3")
-            
-            # Search
-            search = st.text_input("🔍 Search by filename", placeholder="e.g., analysis_15_Priya", key="search_s3_analysis")
-            
-            if search:
-                analyses = [a for a in analyses if search.lower() in a['filename'].lower()]
-                st.caption(f"Showing {len(analyses)} matching analyses")
-            
-            # Pagination settings
-            analysis_items_per_page = st.selectbox(
-                "📄 Items per page:",
-                options=[10, 25, 50, 100, 200, "All"],
-                index=2,  # Default to 50
-                key="analysis_items_per_page"
-            )
-            
-            # Apply pagination
-            if analysis_items_per_page == "All":
-                display_analyses = analyses
-                st.info(f"📊 Displaying all {len(analyses)} analysis files")
-            else:
-                total_pages = (len(analyses) + analysis_items_per_page - 1) // analysis_items_per_page
-                
-                if total_pages > 1:
-                    page = st.number_input(
-                        f"Page (1-{total_pages}):",
-                        min_value=1,
-                        max_value=total_pages,
-                        value=1,
-                        key="analysis_page"
-                    )
-                else:
-                    page = 1
-                
-                start_idx = (page - 1) * analysis_items_per_page
-                end_idx = start_idx + analysis_items_per_page
-                display_analyses = analyses[start_idx:end_idx]
-                
-                st.info(f"📊 Showing {len(display_analyses)} of {len(analyses)} analysis files (Page {page}/{total_pages})")
-            
-            # Display analyses
             st.markdown("---")
-            for idx, analysis in enumerate(display_analyses):
-                days_old = (datetime.now(analysis['last_modified'].tzinfo) - analysis['last_modified']).days
-                
-                if days_old >= 7:
-                    color = "🔴"
-                    status = "Scheduled for deletion"
-                elif days_old >= 4:
-                    color = "🟡"
-                    status = "Expires soon"
+            st.caption("📁 **S3 Path:** `recordings/analysis/YYYY/MM/DD/*.json`")
+        
+            with st.spinner("Loading analysis files from S3..."):
+                analyses = list_s3_analyses()
+        
+            if not analyses:
+                st.info("No analysis JSONs found in S3. Upload and analyze calls to see them here.")
+            else:
+                st.success(f"Found **{len(analyses)}** analysis files in S3")
+            
+                # Search
+                search = st.text_input("🔍 Search by filename", placeholder="e.g., analysis_15_Priya", key="search_s3_analysis")
+            
+                if search:
+                    analyses = [a for a in analyses if search.lower() in a['filename'].lower()]
+                    st.caption(f"Showing {len(analyses)} matching analyses")
+            
+                # Pagination settings
+                analysis_items_per_page = st.selectbox(
+                    "📄 Items per page:",
+                    options=[10, 25, 50, 100, 200, "All"],
+                    index=2,  # Default to 50
+                    key="analysis_items_per_page"
+                )
+            
+                # Apply pagination
+                if analysis_items_per_page == "All":
+                    display_analyses = analyses
+                    st.info(f"📊 Displaying all {len(analyses)} analysis files")
                 else:
-                    color = "🟢"
-                    status = "Fresh"
+                    total_pages = (len(analyses) + analysis_items_per_page - 1) // analysis_items_per_page
                 
-                with st.expander(f"{color} {analysis['filename']} - {status} ({days_old} days old)"):
-                    col_a, col_b = st.columns([3, 2])
+                    if total_pages > 1:
+                        page = st.number_input(
+                            f"Page (1-{total_pages}):",
+                            min_value=1,
+                            max_value=total_pages,
+                            value=1,
+                            key="analysis_page"
+                        )
+                    else:
+                        page = 1
+                
+                    start_idx = (page - 1) * analysis_items_per_page
+                    end_idx = start_idx + analysis_items_per_page
+                    display_analyses = analyses[start_idx:end_idx]
+                
+                    st.info(f"📊 Showing {len(display_analyses)} of {len(analyses)} analysis files (Page {page}/{total_pages})")
+            
+                # Display analyses
+                st.markdown("---")
+                for idx, analysis in enumerate(display_analyses):
+                    days_old = (datetime.now(analysis['last_modified'].tzinfo) - analysis['last_modified']).days
+                
+                    if days_old >= 7:
+                        color = "🔴"
+                        status = "Scheduled for deletion"
+                    elif days_old >= 4:
+                        color = "🟡"
+                        status = "Expires soon"
+                    else:
+                        color = "🟢"
+                        status = "Fresh"
+                
+                    with st.expander(f"{color} {analysis['filename']} - {status} ({days_old} days old)"):
+                        col_a, col_b = st.columns([3, 2])
                     
-                    with col_a:
-                        st.write(f"**📁 S3 Path:**")
-                        st.code(analysis['key'], language="text")
-                        st.write(f"**📅 Uploaded:** {analysis['last_modified'].strftime('%Y-%m-%d %H:%M:%S')}")
-                        st.write(f"**📊 Size:** {analysis['size'] / 1024:.1f} KB")
-                        st.write(f"**⏰ Age:** {days_old} days")
+                        with col_a:
+                            st.write(f"**📁 S3 Path:**")
+                            st.code(analysis['key'], language="text")
+                            st.write(f"**📅 Uploaded:** {analysis['last_modified'].strftime('%Y-%m-%d %H:%M:%S')}")
+                            st.write(f"**📊 Size:** {analysis['size'] / 1024:.1f} KB")
+                            st.write(f"**⏰ Age:** {days_old} days")
                     
-                    with col_b:
-                        if st.button("📥 Download & View", key=f"dl_s3_{idx}", use_container_width=True):
-                            with st.spinner("Downloading from S3..."):
+                        with col_b:
+                            if st.button("📥 Download & View", key=f"dl_s3_{idx}", use_container_width=True):
+                                with st.spinner("Downloading from S3..."):
+                                    analysis_data = download_s3_analysis(analysis['key'])
+                            
+                                if analysis_data:
+                                    st.success("✅ Downloaded!")
+                                    json_str = json.dumps(analysis_data, indent=2)
+                                    st.download_button(
+                                        label="💾 Save JSON",
+                                        data=json_str,
+                                        file_name=analysis['filename'],
+                                        mime="application/json",
+                                        key=f"save_json_{idx}"
+                                    )
+                    
+                        # Preview
+                        if f"preview_s3_{idx}" in st.session_state or st.button("👁️ Preview", key=f"prev_{idx}"):
+                            st.session_state[f"preview_s3_{idx}"] = True
+                        
+                            with st.spinner("Loading..."):
                                 analysis_data = download_s3_analysis(analysis['key'])
-                            
+                        
                             if analysis_data:
-                                st.success("✅ Downloaded!")
-                                json_str = json.dumps(analysis_data, indent=2)
-                                st.download_button(
-                                    label="💾 Save JSON",
-                                    data=json_str,
-                                    file_name=analysis['filename'],
-                                    mime="application/json",
-                                    key=f"save_json_{idx}"
-                                )
-                    
-                    # Preview
-                    if f"preview_s3_{idx}" in st.session_state or st.button("👁️ Preview", key=f"prev_{idx}"):
-                        st.session_state[f"preview_s3_{idx}"] = True
-                        
-                        with st.spinner("Loading..."):
-                            analysis_data = download_s3_analysis(analysis['key'])
-                        
-                        if analysis_data:
-                            st.markdown("---")
-                            st.markdown("### 📊 Analysis Preview")
+                                st.markdown("---")
+                                st.markdown("### 📊 Analysis Preview")
                             
-                            record_data = analysis_data
-                            analysis_results = record_data.get('analysis', {})
+                                record_data = analysis_data
+                                analysis_results = record_data.get('analysis', {})
                             
-                            info_col1, info_col2, info_col3 = st.columns(3)
-                            with info_col1:
-                                st.metric("RM", record_data.get('rm_name', 'N/A'))
-                            with info_col2:
-                                st.metric("Participant", record_data.get('client_name', 'N/A'))
-                            with info_col3:
-                                overall_score = analysis_results.get('overall_score', 0)
-                                st.metric("Score", f"{overall_score:.1f}/100")
+                                info_col1, info_col2, info_col3 = st.columns(3)
+                                with info_col1:
+                                    st.metric("RM", record_data.get('rm_name', 'N/A'))
+                                with info_col2:
+                                    st.metric("Participant", record_data.get('client_name', 'N/A'))
+                                with info_col3:
+                                    overall_score = analysis_results.get('overall_score', 0)
+                                    st.metric("Score", f"{overall_score:.1f}/100")
                             
-                            st.write(f"**Call Type:** {record_data.get('call_type', 'N/A')}")
-                            st.write(f"**Date:** {record_data.get('call_date', 'N/A')}")
-                            st.write(f"**Outcome:** {record_data.get('pitch_outcome', 'N/A')}")
+                                st.write(f"**Call Type:** {record_data.get('call_type', 'N/A')}")
+                                st.write(f"**Date:** {record_data.get('call_date', 'N/A')}")
+                                st.write(f"**Outcome:** {record_data.get('pitch_outcome', 'N/A')}")
                             
-                            with st.expander("📈 Detailed Scores"):
-                                core = analysis_results.get('core_dimensions', {})
-                                iron_lady = analysis_results.get('iron_lady_parameters', {})
+                                with st.expander("📈 Detailed Scores"):
+                                    core = analysis_results.get('core_dimensions', {})
+                                    iron_lady = analysis_results.get('iron_lady_parameters', {})
                                 
-                                col_score1, col_score2 = st.columns(2)
-                                with col_score1:
-                                    st.markdown("**🎯 Core Dimensions**")
-                                    for param, score in core.items():
-                                        st.write(f"• {param.replace('_', ' ').title()}: {score}")
+                                    col_score1, col_score2 = st.columns(2)
+                                    with col_score1:
+                                        st.markdown("**🎯 Core Dimensions**")
+                                        for param, score in core.items():
+                                            st.write(f"• {param.replace('_', ' ').title()}: {score}")
                                 
-                                with col_score2:
-                                    st.markdown("**💎 Iron Lady Parameters**")
-                                    for param, score in iron_lady.items():
-                                        st.write(f"• {param.replace('_', ' ').title()}: {score}")
+                                    with col_score2:
+                                        st.markdown("**💎 Iron Lady Parameters**")
+                                        for param, score in iron_lady.items():
+                                            st.write(f"• {param.replace('_', ' ').title()}: {score}")
                             
-                            if analysis_results.get('strengths'):
-                                with st.expander("✅ Strengths"):
-                                    for strength in analysis_results['strengths']:
-                                        st.write(f"• {strength}")
+                                if analysis_results.get('strengths'):
+                                    with st.expander("✅ Strengths"):
+                                        for strength in analysis_results['strengths']:
+                                            st.write(f"• {strength}")
                             
-                            if analysis_results.get('areas_for_improvement'):
-                                with st.expander("📈 Improvements"):
-                                    for area in analysis_results['areas_for_improvement']:
-                                        st.write(f"• {area}")
+                                if analysis_results.get('areas_for_improvement'):
+                                    with st.expander("📈 Improvements"):
+                                        for area in analysis_results['areas_for_improvement']:
+                                            st.write(f"• {area}")
                             
-                            with st.expander("🔍 Full JSON"):
-                                st.json(analysis_data)
+                                with st.expander("🔍 Full JSON"):
+                                    st.json(analysis_data)
             
-            if len(analyses) > 50:
-                st.info(f"Showing 50 of {len(analyses)} analyses. Use search to find more.")
+                if len(analyses) > 50:
+                    st.info(f"Showing 50 of {len(analyses)} analyses. Use search to find more.")
     
-    # TAB 3: S3 Audio Recordings
-    with tab_s3_audio:
-        st.subheader("🎤 AWS S3 Audio Recordings")
-        st.caption("📁 **S3 Path:** `recordings/YYYY/MM/DD/*.mp3`")
+        # TAB 3: S3 Audio Recordings
+        with tab_s3_audio:
+            st.subheader("🎤 AWS S3 Audio Recordings")
+            st.caption("📁 **S3 Path:** `recordings/YYYY/MM/DD/*.mp3`")
         
-        with st.spinner("Loading audio files from S3..."):
-            recordings = list_s3_recordings()
+            with st.spinner("Loading audio files from S3..."):
+                recordings = list_s3_recordings()
         
-        if not recordings:
-            st.info("No audio recordings found in S3.")
-        else:
-            st.success(f"Found **{len(recordings)}** audio recordings in S3")
-            
-            # Search
-            search_audio = st.text_input("🔍 Search by filename", placeholder="e.g., Priya_Sharma", key="search_s3_audio")
-            
-            if search_audio:
-                recordings = [r for r in recordings if search_audio.lower() in r['filename'].lower()]
-                st.caption(f"Showing {len(recordings)} matching recordings")
-            
-            st.markdown("---")
-            
-            # Pagination settings
-            items_per_page = st.selectbox(
-                "📄 Items per page:",
-                options=[10, 25, 50, 100, 200, "All"],
-                index=2,  # Default to 50
-                key="s3_items_per_page"
-            )
-            
-            # Sort recordings
-            sorted_recordings = sorted(recordings, key=lambda x: x['last_modified'], reverse=True)
-            
-            # Apply pagination
-            if items_per_page == "All":
-                display_recordings = sorted_recordings
-                st.info(f"📊 Displaying all {len(sorted_recordings)} recordings")
+            if not recordings:
+                st.info("No audio recordings found in S3.")
             else:
-                total_pages = (len(sorted_recordings) + items_per_page - 1) // items_per_page
-                
-                if total_pages > 1:
-                    page = st.number_input(
-                        f"Page (1-{total_pages}):",
-                        min_value=1,
-                        max_value=total_pages,
-                        value=1,
-                        key="s3_page"
-                    )
-                else:
-                    page = 1
-                
-                start_idx = (page - 1) * items_per_page
-                end_idx = start_idx + items_per_page
-                display_recordings = sorted_recordings[start_idx:end_idx]
-                
-                st.info(f"📊 Showing {len(display_recordings)} of {len(sorted_recordings)} recordings (Page {page}/{total_pages})")
+                st.success(f"Found **{len(recordings)}** audio recordings in S3")
             
-            st.markdown("---")
+                # Search
+                search_audio = st.text_input("🔍 Search by filename", placeholder="e.g., Priya_Sharma", key="search_s3_audio")
             
-            # Display recordings with audio players
-            for idx, rec in enumerate(display_recordings):
-                days_old = (datetime.now(rec['last_modified'].tzinfo) - rec['last_modified']).days
-                
-                if days_old >= 7:
-                    status_icon = "🔴"
-                    status_text = "Will delete"
-                elif days_old >= 4:
-                    status_icon = "🟡"
-                    status_text = "Expiring soon"
+                if search_audio:
+                    recordings = [r for r in recordings if search_audio.lower() in r['filename'].lower()]
+                    st.caption(f"Showing {len(recordings)} matching recordings")
+            
+                st.markdown("---")
+            
+                # Pagination settings
+                items_per_page = st.selectbox(
+                    "📄 Items per page:",
+                    options=[10, 25, 50, 100, 200, "All"],
+                    index=2,  # Default to 50
+                    key="s3_items_per_page"
+                )
+            
+                # Sort recordings
+                sorted_recordings = sorted(recordings, key=lambda x: x['last_modified'], reverse=True)
+            
+                # Apply pagination
+                if items_per_page == "All":
+                    display_recordings = sorted_recordings
+                    st.info(f"📊 Displaying all {len(sorted_recordings)} recordings")
                 else:
-                    status_icon = "🟢"
-                    status_text = "Fresh"
+                    total_pages = (len(sorted_recordings) + items_per_page - 1) // items_per_page
                 
-                size_display = f"{rec['size'] / (1024*1024):.2f} MB" if rec['size'] > 1024*1024 else f"{rec['size'] / 1024:.2f} KB"
+                    if total_pages > 1:
+                        page = st.number_input(
+                            f"Page (1-{total_pages}):",
+                            min_value=1,
+                            max_value=total_pages,
+                            value=1,
+                            key="s3_page"
+                        )
+                    else:
+                        page = 1
                 
-                with st.expander(f"{status_icon} {rec['filename']} - {size_display} - {status_text} ({days_old} days old)"):
-                    col1, col2 = st.columns([2, 1])
+                    start_idx = (page - 1) * items_per_page
+                    end_idx = start_idx + items_per_page
+                    display_recordings = sorted_recordings[start_idx:end_idx]
+                
+                    st.info(f"📊 Showing {len(display_recordings)} of {len(sorted_recordings)} recordings (Page {page}/{total_pages})")
+            
+                st.markdown("---")
+            
+                # Display recordings with audio players
+                for idx, rec in enumerate(display_recordings):
+                    days_old = (datetime.now(rec['last_modified'].tzinfo) - rec['last_modified']).days
+                
+                    if days_old >= 7:
+                        status_icon = "🔴"
+                        status_text = "Will delete"
+                    elif days_old >= 4:
+                        status_icon = "🟡"
+                        status_text = "Expiring soon"
+                    else:
+                        status_icon = "🟢"
+                        status_text = "Fresh"
+                
+                    size_display = f"{rec['size'] / (1024*1024):.2f} MB" if rec['size'] > 1024*1024 else f"{rec['size'] / 1024:.2f} KB"
+                
+                    with st.expander(f"{status_icon} {rec['filename']} - {size_display} - {status_text} ({days_old} days old)"):
+                        col1, col2 = st.columns([2, 1])
                     
-                    with col1:
-                        st.write(f"**📁 Filename:** {rec['filename']}")
-                        st.write(f"**📅 Uploaded:** {rec['last_modified'].strftime('%Y-%m-%d %H:%M:%S')}")
-                        st.write(f"**📊 Size:** {size_display}")
-                        st.write(f"**⏰ Age:** {days_old} days")
-                        st.write(f"**🎯 Status:** {status_text}")
-                        st.caption(f"S3 Path: `{rec['key']}`")
+                        with col1:
+                            st.write(f"**📁 Filename:** {rec['filename']}")
+                            st.write(f"**📅 Uploaded:** {rec['last_modified'].strftime('%Y-%m-%d %H:%M:%S')}")
+                            st.write(f"**📊 Size:** {size_display}")
+                            st.write(f"**⏰ Age:** {days_old} days")
+                            st.write(f"**🎯 Status:** {status_text}")
+                            st.caption(f"S3 Path: `{rec['key']}`")
                     
-                    with col2:
-                        st.write("**🎧 Audio Controls:**")
+                        with col2:
+                            st.write("**🎧 Audio Controls:**")
                         
-                        # Auto-generate URL on expand
-                        if f"audio_url_{idx}" not in st.session_state:
-                            with st.spinner("Loading audio..."):
-                                audio_url = generate_s3_presigned_url(rec['key'], expiration=3600)
-                                if audio_url:
-                                    st.session_state[f"audio_url_{idx}"] = audio_url
+                            # Auto-generate URL on expand
+                            if f"audio_url_{idx}" not in st.session_state:
+                                with st.spinner("Loading audio..."):
+                                    audio_url = generate_s3_presigned_url(rec['key'], expiration=3600)
+                                    if audio_url:
+                                        st.session_state[f"audio_url_{idx}"] = audio_url
                         
-                        # Download button
-                        if f"audio_url_{idx}" in st.session_state:
-                            audio_url = st.session_state[f"audio_url_{idx}"]
-                            st.markdown(f"[📥 Download Audio]({audio_url})")
+                            # Download button
+                            if f"audio_url_{idx}" in st.session_state:
+                                audio_url = st.session_state[f"audio_url_{idx}"]
+                                st.markdown(f"[📥 Download Audio]({audio_url})")
                             
-                            # Refresh URL button
-                            if st.button("🔄 Refresh Link", key=f"refresh_{idx}", use_container_width=True):
-                                audio_url = generate_s3_presigned_url(rec['key'], expiration=3600)
-                                if audio_url:
-                                    st.session_state[f"audio_url_{idx}"] = audio_url
-                                    st.success("✅ Link refreshed!")
-                                    st.rerun()
-                    
-                    # Display audio player prominently
-                    if f"audio_url_{idx}" in st.session_state:
-                        st.markdown("---")
-                        
-                        # Two-column layout: Audio Player + Call Info
-                        col_audio, col_info = st.columns([2, 1])
-                        
-                        with col_audio:
-                            st.markdown("### 🎧 Listen to Call Recording")
-                            audio_url = st.session_state[f"audio_url_{idx}"]
-                            st.audio(audio_url, format='audio/mp3')
-                            st.caption("💡 Audio link expires in 1 hour. Click 'Refresh Link' above to generate new one.")
-                        
-                        # Find corresponding database record by matching filename/date
-                        db = load_db()
-                        matching_record = None
-                        possible_matches = []
-                        
-                        # Try multiple matching strategies
-                        for record in db:
-                            match_score = 0
-                            match_reasons = []
-                            
-                            # Strategy 1: Exact filename match
-                            if rec['filename'] in record.get('file_name', ''):
-                                match_score += 100
-                                match_reasons.append("Exact filename")
-                            
-                            # Strategy 2: Filename contains client name
-                            client_name_clean = record.get('client_name', '').replace(' ', '_').replace('-', '_').lower()
-                            filename_clean = rec['filename'].lower()
-                            if client_name_clean and client_name_clean in filename_clean:
-                                match_score += 50
-                                match_reasons.append("Client name in filename")
-                            
-                            # Strategy 3: Date in S3 path matches call date
-                            if record.get('call_date', '') in rec['key']:
-                                match_score += 30
-                                match_reasons.append("Date match")
-                            
-                            # Strategy 4: S3 URL match
-                            if record.get('file_path', '') == f"s3://{get_bucket_name()}/{rec['key']}":
-                                match_score += 100
-                                match_reasons.append("S3 URL match")
-                            
-                            # Strategy 5: RM name in filename
-                            rm_name_clean = record.get('rm_name', '').replace(' ', '_').replace('-', '_').lower()
-                            if rm_name_clean and rm_name_clean in filename_clean:
-                                match_score += 20
-                                match_reasons.append("RM name in filename")
-                            
-                            if match_score > 0:
-                                possible_matches.append({
-                                    'record': record,
-                                    'score': match_score,
-                                    'reasons': match_reasons
-                                })
-                        
-                        # Sort by match score and take best match
-                        possible_matches.sort(key=lambda x: x['score'], reverse=True)
-                        
-                        if possible_matches:
-                            best_match = possible_matches[0]
-                            if best_match['score'] >= 50:  # Confidence threshold
-                                matching_record = best_match['record']
-                        
-                        with col_info:
-                            if matching_record:
-                                st.markdown("### 📊 Call Details")
-                                st.metric("Score", f"{matching_record.get('analysis', {}).get('overall_score', 0):.1f}/100")
-                                st.write(f"**RM:** {matching_record['rm_name']}")
-                                st.write(f"**Participant:** {matching_record['client_name']}")
-                                st.write(f"**Type:** {matching_record['call_type']}")
-                                st.write(f"**Date:** {matching_record['call_date']}")
-                                
-                                # Show match confidence
-                                if possible_matches:
-                                    match_info = possible_matches[0]
-                                    st.caption(f"✅ Match: {', '.join(match_info['reasons'])}")
-                                    
-                                    # If multiple possible matches, show selector
-                                    if len(possible_matches) > 1 and possible_matches[1]['score'] >= 30:
-                                        with st.expander(f"🔄 Other possible matches ({len(possible_matches)-1})"):
-                                            st.caption("If this is the wrong call, select the correct one:")
-                                            for i, match in enumerate(possible_matches[1:4], 1):  # Show top 3 alternatives
-                                                rec_info = match['record']
-                                                if st.button(
-                                                    f"{rec_info['client_name']} - {rec_info['rm_name']} - {rec_info['call_date']} ({rec_info['call_type']})",
-                                                    key=f"alt_match_{idx}_{i}"
-                                                ):
-                                                    matching_record = rec_info
-                                                    st.rerun()
-                            else:
-                                st.markdown("### ⚠️ Record Not Found")
-                                st.warning("Call not in database")
-                                st.caption("Select manually below or analyze call first")
-                                
-                                # Manual selection fallback - ALWAYS VISIBLE
-                                if db:
-                                    with st.expander("🔍 **Click Here to Select Call Record**", expanded=True):
-                                        st.caption("📌 Select the database record that matches this audio file:")
-                                        
-                                        # Add search within manual selection
-                                        manual_search = st.text_input(
-                                            "Search records:",
-                                            placeholder="Filter by name, date, or type...",
-                                            key=f"manual_search_{idx}"
-                                        )
-                                        
-                                        # Show recent records first (increased from 20 to 100)
-                                        recent_records = sorted(db, key=lambda x: x.get('call_date', ''), reverse=True)[:100]
-                                        
-                                        # Apply search filter if provided
-                                        if manual_search:
-                                            recent_records = [
-                                                r for r in recent_records 
-                                                if manual_search.lower() in r.get('client_name', '').lower() 
-                                                or manual_search.lower() in r.get('rm_name', '').lower()
-                                                or manual_search.lower() in r.get('call_date', '').lower()
-                                                or manual_search.lower() in r.get('call_type', '').lower()
-                                            ]
-                                            st.caption(f"Found {len(recent_records)} matching records")
-                                        else:
-                                            st.caption(f"Showing {len(recent_records)} most recent records (of {len(db)} total)")
-                                        
-                                        for i, rec_option in enumerate(recent_records):
-                                            if st.button(
-                                                f"{rec_option['client_name']} - {rec_option['rm_name']} - {rec_option['call_date']} ({rec_option['call_type']}) - Score: {rec_option.get('analysis', {}).get('overall_score', 0):.1f}",
-                                                key=f"manual_select_{idx}_{i}",
-                                                use_container_width=True
-                                            ):
-                                                matching_record = rec_option
-                                                st.success(f"✅ Selected: {rec_option['client_name']}")
-                                                st.rerun()
-                        
-                        # ADMIN FEEDBACK SECTION - ALWAYS VISIBLE WITH FORM!
-                        st.markdown("---")
-                        st.markdown("## 📝 Admin Feedback Section")
-                        st.markdown("**Listen to the call above, then provide your feedback below:**")
-                        
-                        # Check if we have a matching record
-                        existing_feedback = {}
-                        if matching_record:
-                            existing_feedback = matching_record.get('admin_feedback', {})
-                            
-                            # Show existing feedback if present
-                            if existing_feedback and not st.session_state.get(f"edit_feedback_{idx}", False):
-                                st.success("✅ **You have already provided feedback for this call**")
-                                
-                                col_fb1, col_fb2 = st.columns([3, 1])
-                                
-                                with col_fb1:
-                                    st.markdown("### 📋 Your Previous Feedback:")
-                                    st.info(f"**Feedback:** {existing_feedback.get('feedback_text', 'N/A')}")
-                                    st.warning(f"**Focus Areas:** {existing_feedback.get('focus_areas', 'N/A')}")
-                                    st.write(f"**Rating:** {'⭐' * existing_feedback.get('rating', 0)} ({existing_feedback.get('rating', 0)}/5)")
-                                    st.caption(f"Provided on: {existing_feedback.get('feedback_date', 'N/A')}")
-                                
-                                with col_fb2:
-                                    if st.button("✏️ Edit Feedback", key=f"edit_fb_{idx}", use_container_width=True):
-                                        st.session_state[f"edit_feedback_{idx}"] = True
+                                # Refresh URL button
+                                if st.button("🔄 Refresh Link", key=f"refresh_{idx}", use_container_width=True):
+                                    audio_url = generate_s3_presigned_url(rec['key'], expiration=3600)
+                                    if audio_url:
+                                        st.session_state[f"audio_url_{idx}"] = audio_url
+                                        st.success("✅ Link refreshed!")
                                         st.rerun()
-                        
-                        # ALWAYS SHOW FEEDBACK FORM (unless existing feedback and not in edit mode)
-                        if not existing_feedback or st.session_state.get(f"edit_feedback_{idx}", False) or not matching_record:
+                    
+                        # Display audio player prominently
+                        if f"audio_url_{idx}" in st.session_state:
                             st.markdown("---")
+                        
+                            # Two-column layout: Audio Player + Call Info
+                            col_audio, col_info = st.columns([2, 1])
+                        
+                            with col_audio:
+                                st.markdown("### 🎧 Listen to Call Recording")
+                                audio_url = st.session_state[f"audio_url_{idx}"]
+                                st.audio(audio_url, format='audio/mp3')
+                                st.caption("💡 Audio link expires in 1 hour. Click 'Refresh Link' above to generate new one.")
+                        
+                            # Find corresponding database record by matching filename/date
+                            db = load_db()
+                            matching_record = None
+                            possible_matches = []
+                        
+                            # Try multiple matching strategies
+                            for record in db:
+                                match_score = 0
+                                match_reasons = []
                             
-                            # Show warning if no record selected
-                            if not matching_record:
-                                st.info("💡 **Note:** Please select the correct call record above before submitting feedback. You can still fill out the form, but you'll need to link it to a call record to save.")
+                                # Strategy 1: Exact filename match
+                                if rec['filename'] in record.get('file_name', ''):
+                                    match_score += 100
+                                    match_reasons.append("Exact filename")
                             
-                            with st.form(key=f"admin_feedback_form_{idx}"):
-                                st.markdown("### ✍️ Provide Your Admin Feedback")
+                                # Strategy 2: Filename contains client name
+                                client_name_clean = record.get('client_name', '').replace(' ', '_').replace('-', '_').lower()
+                                filename_clean = rec['filename'].lower()
+                                if client_name_clean and client_name_clean in filename_clean:
+                                    match_score += 50
+                                    match_reasons.append("Client name in filename")
+                            
+                                # Strategy 3: Date in S3 path matches call date
+                                if record.get('call_date', '') in rec['key']:
+                                    match_score += 30
+                                    match_reasons.append("Date match")
+                            
+                                # Strategy 4: S3 URL match
+                                if record.get('file_path', '') == f"s3://{get_bucket_name()}/{rec['key']}":
+                                    match_score += 100
+                                    match_reasons.append("S3 URL match")
+                            
+                                # Strategy 5: RM name in filename
+                                rm_name_clean = record.get('rm_name', '').replace(' ', '_').replace('-', '_').lower()
+                                if rm_name_clean and rm_name_clean in filename_clean:
+                                    match_score += 20
+                                    match_reasons.append("RM name in filename")
+                            
+                                if match_score > 0:
+                                    possible_matches.append({
+                                        'record': record,
+                                        'score': match_score,
+                                        'reasons': match_reasons
+                                    })
+                        
+                            # Sort by match score and take best match
+                            possible_matches.sort(key=lambda x: x['score'], reverse=True)
+                        
+                            if possible_matches:
+                                best_match = possible_matches[0]
+                                if best_match['score'] >= 50:  # Confidence threshold
+                                    matching_record = best_match['record']
+                        
+                            with col_info:
+                                if matching_record:
+                                    st.markdown("### 📊 Call Details")
+                                    st.metric("Score", f"{matching_record.get('analysis', {}).get('overall_score', 0):.1f}/100")
+                                    st.write(f"**RM:** {matching_record['rm_name']}")
+                                    st.write(f"**Participant:** {matching_record['client_name']}")
+                                    st.write(f"**Type:** {matching_record['call_type']}")
+                                    st.write(f"**Date:** {matching_record['call_date']}")
                                 
-                                st.markdown("**After listening to the call, please provide:**")
+                                    # Show match confidence
+                                    if possible_matches:
+                                        match_info = possible_matches[0]
+                                        st.caption(f"✅ Match: {', '.join(match_info['reasons'])}")
+                                    
+                                        # If multiple possible matches, show selector
+                                        if len(possible_matches) > 1 and possible_matches[1]['score'] >= 30:
+                                            with st.expander(f"🔄 Other possible matches ({len(possible_matches)-1})"):
+                                                st.caption("If this is the wrong call, select the correct one:")
+                                                for i, match in enumerate(possible_matches[1:4], 1):  # Show top 3 alternatives
+                                                    rec_info = match['record']
+                                                    if st.button(
+                                                        f"{rec_info['client_name']} - {rec_info['rm_name']} - {rec_info['call_date']} ({rec_info['call_type']})",
+                                                        key=f"alt_match_{idx}_{i}"
+                                                    ):
+                                                        matching_record = rec_info
+                                                        st.rerun()
+                                else:
+                                    st.markdown("### ⚠️ Record Not Found")
+                                    st.warning("Call not in database")
+                                    st.caption("Select manually below or analyze call first")
                                 
-                                feedback_text = st.text_area(
-                                    "📝 Detailed Feedback (Required)",
-                                    value=existing_feedback.get('feedback_text', ''),
-                                    placeholder="""Example: "Great rapport building - used participant name 7 times. Excellent BHAG expansion from ₹50L to ₹1.2cr. However, did NOT mention any case studies by name. When discussing transformation, could have used Chandana or Pushpalatha examples. Closing was weak - asked 'What do you think?' instead of 'Powerfully Invite'. No urgency created - didn't mention limited spots or deadline."
-
-Be specific about:
-• What the RM did well
-• What was missing
-• Specific examples from the call
-• Exact moments to improve""",
-                                    height=200,
-                                    help="This feedback will be shown to the RM and considered in their next call analysis by GPT"
-                                )
-                                
-                                focus_areas = st.text_input(
-                                    "🎯 Key Focus Areas for Next Call (Required)",
-                                    value=existing_feedback.get('focus_areas', ''),
-                                    placeholder="e.g., Use case study names (Chandana, Pushpalatha), Say 'Powerfully Invite', Create urgency",
-                                    help="3-5 specific areas the RM should focus on improving in their next call"
-                                )
-                                
-                                col_rating, col_space = st.columns([1, 2])
-                                with col_rating:
-                                    admin_rating = st.slider(
-                                        "⭐ Admin Quality Rating",
-                                        min_value=1,
-                                        max_value=5,
-                                        value=existing_feedback.get('rating', 3),
-                                        help="Your subjective quality rating after listening to the full call"
-                                    )
-                                
-                                st.markdown("---")
-                                st.caption("💡 **This feedback will:**")
-                                st.caption("✅ Be saved with this call record")
-                                st.caption("✅ Be shown to the RM immediately")
-                                st.caption("✅ Be considered by GPT in the RM's next call analysis")
-                                st.caption("✅ Help track the RM's improvement over time")
-                                
-                                st.markdown("---")
-                                
-                                col_submit, col_cancel = st.columns([1, 1])
-                                
-                                with col_submit:
-                                    submit_feedback = st.form_submit_button(
-                                        "💾 Save Admin Feedback", 
-                                        use_container_width=True,
-                                        type="primary"
-                                    )
-                                
-                                with col_cancel:
-                                    cancel_feedback = st.form_submit_button(
-                                        "❌ Cancel", 
-                                        use_container_width=True
-                                    )
-                                
-                                if submit_feedback:
-                                    if not matching_record:
-                                        st.error("❌ Please select a call record from the '🔍 Click Here to Select Call Record' section above before saving feedback")
-                                    elif feedback_text and focus_areas:
-                                        save_admin_feedback(
-                                            matching_record['id'],
-                                            feedback_text,
-                                            focus_areas,
-                                            admin_rating
-                                        )
-                                        st.success("✅ Admin feedback saved successfully!")
-                                        st.success(f"🎯 This feedback will be considered in {matching_record['rm_name']}'s next call analysis")
+                                    # Manual selection fallback - ALWAYS VISIBLE
+                                    if db:
+                                        with st.expander("🔍 **Click Here to Select Call Record**", expanded=True):
+                                            st.caption("📌 Select the database record that matches this audio file:")
                                         
-                                        # Clear edit mode
+                                            # Add search within manual selection
+                                            manual_search = st.text_input(
+                                                "Search records:",
+                                                placeholder="Filter by name, date, or type...",
+                                                key=f"manual_search_{idx}"
+                                            )
+                                        
+                                            # Show recent records first (increased from 20 to 100)
+                                            recent_records = sorted(db, key=lambda x: x.get('call_date', ''), reverse=True)[:100]
+                                        
+                                            # Apply search filter if provided
+                                            if manual_search:
+                                                recent_records = [
+                                                    r for r in recent_records 
+                                                    if manual_search.lower() in r.get('client_name', '').lower() 
+                                                    or manual_search.lower() in r.get('rm_name', '').lower()
+                                                    or manual_search.lower() in r.get('call_date', '').lower()
+                                                    or manual_search.lower() in r.get('call_type', '').lower()
+                                                ]
+                                                st.caption(f"Found {len(recent_records)} matching records")
+                                            else:
+                                                st.caption(f"Showing {len(recent_records)} most recent records (of {len(db)} total)")
+                                        
+                                            for i, rec_option in enumerate(recent_records):
+                                                if st.button(
+                                                    f"{rec_option['client_name']} - {rec_option['rm_name']} - {rec_option['call_date']} ({rec_option['call_type']}) - Score: {rec_option.get('analysis', {}).get('overall_score', 0):.1f}",
+                                                    key=f"manual_select_{idx}_{i}",
+                                                    use_container_width=True
+                                                ):
+                                                    matching_record = rec_option
+                                                    st.success(f"✅ Selected: {rec_option['client_name']}")
+                                                    st.rerun()
+                        
+                            # ADMIN FEEDBACK SECTION - ALWAYS VISIBLE WITH FORM!
+                            st.markdown("---")
+                            st.markdown("## 📝 Admin Feedback Section")
+                            st.markdown("**Listen to the call above, then provide your feedback below:**")
+                        
+                            # Check if we have a matching record
+                            existing_feedback = {}
+                            if matching_record:
+                                existing_feedback = matching_record.get('admin_feedback', {})
+                            
+                                # Show existing feedback if present
+                                if existing_feedback and not st.session_state.get(f"edit_feedback_{idx}", False):
+                                    st.success("✅ **You have already provided feedback for this call**")
+                                
+                                    col_fb1, col_fb2 = st.columns([3, 1])
+                                
+                                    with col_fb1:
+                                        st.markdown("### 📋 Your Previous Feedback:")
+                                        st.info(f"**Feedback:** {existing_feedback.get('feedback_text', 'N/A')}")
+                                        st.warning(f"**Focus Areas:** {existing_feedback.get('focus_areas', 'N/A')}")
+                                        st.write(f"**Rating:** {'⭐' * existing_feedback.get('rating', 0)} ({existing_feedback.get('rating', 0)}/5)")
+                                        st.caption(f"Provided on: {existing_feedback.get('feedback_date', 'N/A')}")
+                                
+                                    with col_fb2:
+                                        if st.button("✏️ Edit Feedback", key=f"edit_fb_{idx}", use_container_width=True):
+                                            st.session_state[f"edit_feedback_{idx}"] = True
+                                            st.rerun()
+                        
+                            # ALWAYS SHOW FEEDBACK FORM (unless existing feedback and not in edit mode)
+                            if not existing_feedback or st.session_state.get(f"edit_feedback_{idx}", False) or not matching_record:
+                                st.markdown("---")
+                            
+                                # Show warning if no record selected
+                                if not matching_record:
+                                    st.info("💡 **Note:** Please select the correct call record above before submitting feedback. You can still fill out the form, but you'll need to link it to a call record to save.")
+                            
+                                with st.form(key=f"admin_feedback_form_{idx}"):
+                                    st.markdown("### ✍️ Provide Your Admin Feedback")
+                                
+                                    st.markdown("**After listening to the call, please provide:**")
+                                
+                                    feedback_text = st.text_area(
+                                        "📝 Detailed Feedback (Required)",
+                                        value=existing_feedback.get('feedback_text', ''),
+                                        placeholder="""Example: "Great rapport building - used participant name 7 times. Excellent BHAG expansion from ₹50L to ₹1.2cr. However, did NOT mention any case studies by name. When discussing transformation, could have used Chandana or Pushpalatha examples. Closing was weak - asked 'What do you think?' instead of 'Powerfully Invite'. No urgency created - didn't mention limited spots or deadline."
+
+    Be specific about:
+    • What the RM did well
+    • What was missing
+    • Specific examples from the call
+    • Exact moments to improve""",
+                                        height=200,
+                                        help="This feedback will be shown to the RM and considered in their next call analysis by GPT"
+                                    )
+                                
+                                    focus_areas = st.text_input(
+                                        "🎯 Key Focus Areas for Next Call (Required)",
+                                        value=existing_feedback.get('focus_areas', ''),
+                                        placeholder="e.g., Use case study names (Chandana, Pushpalatha), Say 'Powerfully Invite', Create urgency",
+                                        help="3-5 specific areas the RM should focus on improving in their next call"
+                                    )
+                                
+                                    col_rating, col_space = st.columns([1, 2])
+                                    with col_rating:
+                                        admin_rating = st.slider(
+                                            "⭐ Admin Quality Rating",
+                                            min_value=1,
+                                            max_value=5,
+                                            value=existing_feedback.get('rating', 3),
+                                            help="Your subjective quality rating after listening to the full call"
+                                        )
+                                
+                                    st.markdown("---")
+                                    st.caption("💡 **This feedback will:**")
+                                    st.caption("✅ Be saved with this call record")
+                                    st.caption("✅ Be shown to the RM immediately")
+                                    st.caption("✅ Be considered by GPT in the RM's next call analysis")
+                                    st.caption("✅ Help track the RM's improvement over time")
+                                
+                                    st.markdown("---")
+                                
+                                    col_submit, col_cancel = st.columns([1, 1])
+                                
+                                    with col_submit:
+                                        submit_feedback = st.form_submit_button(
+                                            "💾 Save Admin Feedback", 
+                                            use_container_width=True,
+                                            type="primary"
+                                        )
+                                
+                                    with col_cancel:
+                                        cancel_feedback = st.form_submit_button(
+                                            "❌ Cancel", 
+                                            use_container_width=True
+                                        )
+                                
+                                    if submit_feedback:
+                                        if not matching_record:
+                                            st.error("❌ Please select a call record from the '🔍 Click Here to Select Call Record' section above before saving feedback")
+                                        elif feedback_text and focus_areas:
+                                            save_admin_feedback(
+                                                matching_record['id'],
+                                                feedback_text,
+                                                focus_areas,
+                                                admin_rating
+                                            )
+                                            st.success("✅ Admin feedback saved successfully!")
+                                            st.success(f"🎯 This feedback will be considered in {matching_record['rm_name']}'s next call analysis")
+                                        
+                                            # Clear edit mode
+                                            if f"edit_feedback_{idx}" in st.session_state:
+                                                del st.session_state[f"edit_feedback_{idx}"]
+                                        
+                                            st.balloons()
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Please provide both feedback text and focus areas")
+                                
+                                    if cancel_feedback:
                                         if f"edit_feedback_{idx}" in st.session_state:
                                             del st.session_state[f"edit_feedback_{idx}"]
-                                        
-                                        st.balloons()
                                         st.rerun()
-                                    else:
-                                        st.error("❌ Please provide both feedback text and focus areas")
-                                
-                                if cancel_feedback:
-                                    if f"edit_feedback_{idx}" in st.session_state:
-                                        del st.session_state[f"edit_feedback_{idx}"]
-                                    st.rerun()
                         
-                        # Show RM's feedback history for context (only if record is linked)
-                        if matching_record:
-                            st.markdown("---")
-                            with st.expander(f"📊 View {matching_record['rm_name']}'s Complete Feedback History"):
-                                rm_history = get_rm_feedback_history(matching_record['rm_name'])
+                            # Show RM's feedback history for context (only if record is linked)
+                            if matching_record:
+                                st.markdown("---")
+                                with st.expander(f"📊 View {matching_record['rm_name']}'s Complete Feedback History"):
+                                    rm_history = get_rm_feedback_history(matching_record['rm_name'])
                                 
-                                if rm_history:
-                                    st.write(f"**Total Calls with Admin Feedback:** {len(rm_history)}")
-                                    st.markdown("**Recent feedback provided:**")
+                                    if rm_history:
+                                        st.write(f"**Total Calls with Admin Feedback:** {len(rm_history)}")
+                                        st.markdown("**Recent feedback provided:**")
                                     
-                                    for i, hist in enumerate(reversed(rm_history[-5:]), 1):  # Last 5
-                                        st.markdown(f"### Call {i}: {hist['date']}")
-                                        st.write(f"**Type:** {hist['call_type']} | **Score:** {hist['score']}/100")
-                                        st.info(f"📝 Feedback: {hist['feedback']}")
-                                        if hist.get('focus_areas'):
-                                            st.warning(f"🎯 Focus Areas: {hist['focus_areas']}")
-                                        st.markdown("---")
-                                else:
-                                    st.info(f"No previous feedback history for {matching_record['rm_name']}")
-                                    st.caption("This will be their first admin feedback!")
+                                        for i, hist in enumerate(reversed(rm_history[-5:]), 1):  # Last 5
+                                            st.markdown(f"### Call {i}: {hist['date']}")
+                                            st.write(f"**Type:** {hist['call_type']} | **Score:** {hist['score']}/100")
+                                            st.info(f"📝 Feedback: {hist['feedback']}")
+                                            if hist.get('focus_areas'):
+                                                st.warning(f"🎯 Focus Areas: {hist['focus_areas']}")
+                                            st.markdown("---")
+                                    else:
+                                        st.info(f"No previous feedback history for {matching_record['rm_name']}")
+                                        st.caption("This will be their first admin feedback!")
             
-            st.markdown("---")
-            st.markdown("""
-            **Legend:** 
-            - 🟢 **Fresh** (0-3 days) - Recently uploaded
-            - 🟡 **Expiring** (4-6 days) - Will be deleted in 1-3 days
-            - 🔴 **Will delete** (7+ days) - Scheduled for deletion
-            """)
+                st.markdown("---")
+                st.markdown("""
+                **Legend:** 
+                - 🟢 **Fresh** (0-3 days) - Recently uploaded
+                - 🟡 **Expiring** (4-6 days) - Will be deleted in 1-3 days
+                - 🔴 **Will delete** (7+ days) - Scheduled for deletion
+                """)
             
-            st.caption(f"💡 Use pagination above to navigate through all {len(recordings)} recordings")
-            st.caption("🎵 Click 'Play Audio' to listen to any recording in the app")
+                st.caption(f"💡 Use pagination above to navigate through all {len(recordings)} recordings")
+                st.caption("🎵 Click 'Play Audio' to listen to any recording in the app")
 
 # Footer
 st.sidebar.markdown("---")
